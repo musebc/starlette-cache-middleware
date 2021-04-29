@@ -4,7 +4,7 @@ build-backend = "flit.buildapi"
 
 [tool.flit.metadata]
 module = "starlette_cache"
-author = "Brian Msue"
+author = "Brian Muse"
 author-email = "musebc@protonmail.com"
 home-page = "https://github.com/musebc/starlette-cache-middleware"
 classifiers = [

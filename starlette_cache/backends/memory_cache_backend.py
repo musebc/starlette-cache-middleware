@@ -1,6 +1,7 @@
+import pickle
 import time
-from collections import OrderedDict
-from threading import Lock
+import collections
+import threading
 from typing import Any, Optional
 
 from starlette_cache.backends.base_cache_backend import BaseCacheBackend
@@ -12,33 +13,51 @@ _locks = {}
 
 class MemoryCacheBackend(BaseCacheBackend):
     DEFAULT_TTL = 300
+    pickle_protocol = pickle.HIGHEST_PROTOCOL
 
-    def __init__(self, name):
-        self.__cache = _caches.setdefault(name, OrderedDict())
+    def __init__(self, name: str):
+        self.__cache = _caches.setdefault(name, collections.OrderedDict())
         self.__expirations = _expire_info.setdefault(name, {})
-        self.__lock = _locks.setdefault(name, Lock())
+        self.__lock = _locks.setdefault(name, threading.Lock())
 
     def get(self, key: str, default: Any = None) -> Optional[Any]:
         with self.__lock:
             if self.__has_expired(key):
                 self.delete(key)
                 return default
-            value = self.__cache[key]
+            pickled = self.__cache[key]
             self.__cache.move_to_end(key, last=False)
-        return value
+        return pickle.loads(pickled)
 
     def set(self, key: str, value: Any, ttl: int = DEFAULT_TTL) -> None:
-        value_tuple = (time.time() + ttl, value)
-        self.__cache[key] = value_tuple
+        with self.__lock:
+            self._set(key, value, ttl)
 
-    def add(self, key: str, value: Any, ttl: int = DEFAULT_TTL) -> Any:
-        value_tuple = (time.time() + ttl, value)
-        self.__cache[key] = value_tuple
-        return value
+    @staticmethod
+    def __get_expiration(ttl: int) -> float:
+        return time.time() + ttl
 
-    def delete(self, key: str):
+    def _set(self, key: str, value: Any, ttl: int) -> None:
+        pickled = pickle.dumps(value, self.pickle_protocol)
+        expiration = self.__get_expiration(ttl)
+        self.__cache[key] = pickled
+        self.__cache.move_to_end(key, last=False)
+        self.__expirations[key] = expiration
+
+    def add(self, key: str, value: Any, ttl: int = DEFAULT_TTL) -> bool:
+        with self.__lock:
+            if self.__has_expired(key):
+                self._set(key, value, ttl)
+                return True
+            return False
+
+    def delete(self, key: str) -> None:
         try:
             del self.__cache[key]
+        except KeyError:
+            pass
+        try:
+            del self.__expirations[key]
         except KeyError:
             pass
 

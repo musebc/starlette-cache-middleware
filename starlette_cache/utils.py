@@ -9,7 +9,7 @@ from starlette.requests import Request
 
 def get_cache_key(request: Request) -> str:
     return hashlib.md5(
-        f"{request.method}.{__get_repeatable_url(request.url)}"
+        f"{request.method}.{__get_repeatable_url(request.url)}".encode("utf-8")
     ).hexdigest()
 
 
@@ -22,7 +22,9 @@ def get_cache_key_including_headers(request: Request, header_keys: List[str]) ->
             unsafe_header_string = f"{unsafe_header_string},{key}:{value}"
 
     header_string = quote(unsafe_header_string)
-    return hashlib.md5(f"{request.method}.{url}.{header_string}").hexdigest()
+    return hashlib.md5(
+        f"{request.method}.{url}.{header_string}".encode("utf-8")
+    ).hexdigest()
 
 
 def __get_repeatable_url(url: URL):

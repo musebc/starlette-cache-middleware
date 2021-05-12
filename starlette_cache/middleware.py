@@ -1,23 +1,24 @@
-import functools
-from typing import Callable, Optional, Union
+from typing import Callable, Optional, Union, Any
 
 from starlette.datastructures import Headers, MutableHeaders
 from starlette.requests import Request
+from starlette.responses import Response
 
-from starlette.types import ASGIApp, Receive, Scope, Send, Message
+from starlette.types import ASGIApp
 
 from starlette_cache import utils
 from starlette_cache.backends.base_async_cache_backend import BaseAsyncCacheBackend
 from starlette_cache.backends.base_cache_backend import BaseCacheBackend
+from starlette_cache.backends.memory_cache_backend import MemoryCacheBackend
 
 
 class CacheMiddleware:
     def __init__(
         self,
-        app: ASGIApp,
-        backend: Optional[Union[BaseCacheBackend, BaseAsyncCacheBackend]] = None,
+        app: Union[ASGIApp, Callable],
+        backend: Optional[BaseCacheBackend] = None,
         cache_ttl: int = 300,
-        key_function: Optional[Callable] = None,
+        key_function: Optional[Callable[[Request], str]] = None,
     ) -> None:
         """
         Create an instance of the cache middleware.
@@ -29,68 +30,61 @@ class CacheMiddleware:
         :param key_function: An optional function to generate the cache_key
         from the starlette Request object.
         """
-        self.app = app
-        self.cache_backend = backend
-        self.ttl = cache_ttl
-        self.key_function = key_function or utils.get_cache_key
-        self.request = None
+        self.app: Union[ASGIApp, Callable] = app
+        self.cache_backend: BaseCacheBackend = backend or MemoryCacheBackend
+        self.ttl: int = cache_ttl
+        self.key_func: Callable[[Request], str] = key_function or utils.get_cache_key
+        self.request: Optional[Request] = None
 
-    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+    async def __call__(
+        self, request: Request, response: Response, *args, **kwargs
+    ) -> Any:
+        self.request = request
+        self.request.state.update_cache = False
+        response = response
         if self.cache_backend:
-            self.request = Request(scope, receive, send)
-            self.request.state.update_cache = False
             if self.request.method in {"GET", "HEAD"}:
-                cache_key = self.key_function(self.request)
-                message = await self.cache_backend.get(cache_key)
+                cache_key = self.key_func(self.request)
+                message = self.cache_backend.get(cache_key)
                 if message:
-                    await self.send(message, send, self.request.headers)
-                    return
+                    return message
                 else:
                     self.request.state.update_cache = True
-        send = functools.partial(
-            self.send, send=send, request_headers=self.request.headers
-        )
-        await self.app(scope, receive, send)
+        message = await self.app(request=request, response=response, *args, **kwargs)
+        return await self.build_response(message, self.request.headers, response)
 
-    async def send(
-        self, message: Message, send: Send, request_headers: Headers
-    ) -> None:
-        if message["type"] != "http.response.start":
-            await send(message)
-            return
+    async def build_response(
+        self, message: Any, request_headers: Headers, response: Response
+    ) -> Any:
 
-        message.setdefault("headers", [])
-        headers = MutableHeaders(scope=message)
-
+        headers = MutableHeaders()
         if (
             "cookie" not in request_headers
             and headers.get("set-cookie")
             and "Cookie" in headers.get("vary")
         ):
-            await send(message)
-            return
+            return message
 
-        if "private" in headers.get("Cache-Control"):
-            await send(message)
+        if "private" in headers.get("Cache-Control", []):
+            return message
 
         headers["Cache-Control"] = str(self.ttl)
+
+        response.headers.update(dict(headers.items()))
 
         try:
             should_update_cache = self.request.state.update_cache
         except AttributeError:
-            await send(message)
-            return
+            return message
 
         if not should_update_cache:
-            await send(message)
-            return
+            return message
 
-        future = send(message)
-        cache_key = self.key_function(self.request)
+        cache_key = self.key_func(self.request)
 
         if isinstance(self.cache_backend, BaseAsyncCacheBackend):
             await self.cache_backend.set(cache_key, message, self.ttl)
         else:
             self.cache_backend.set(cache_key, message, self.ttl)
 
-        await future
+        return message

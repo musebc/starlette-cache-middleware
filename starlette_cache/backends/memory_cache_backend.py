@@ -11,7 +11,7 @@ _expire_info = {}
 _locks = {}
 
 
-class MemoryCacheBackend(BaseCacheBackend):
+class MemoryCacheBackend(BaseCacheBackend[str, Any]):
     DEFAULT_TTL = 300
     pickle_protocol = pickle.HIGHEST_PROTOCOL
 

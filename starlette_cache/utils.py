@@ -19,7 +19,10 @@ def get_cache_key_including_headers(request: Request, header_keys: List[str]) ->
     for key in header_keys:
         value = request.headers.get(key)
         if value is not None:
-            unsafe_header_string = f"{unsafe_header_string},{key}:{value}"
+            if not unsafe_header_string:
+                unsafe_header_string = f"{key}:{value}"
+            else:
+                unsafe_header_string = f"{unsafe_header_string},{key}:{value}"
 
     header_string = quote(unsafe_header_string)
     return hashlib.md5(
@@ -28,13 +31,16 @@ def get_cache_key_including_headers(request: Request, header_keys: List[str]) ->
 
 
 def __get_repeatable_url(url: URL):
-    return quote(f"{url.scheme}://{url.hostname}/{url.path}?{url.query}")
+    return quote(
+        f"{url.scheme}://{url.hostname}/{url.path}{'?' if url.query else ''}"
+        f"{__sorted_query_params(url.query) if url.query else ''}"
+    )
 
 
 def __sorted_query_params(query_parameter_string: str):
     params = OrderedDict()
 
-    param_list = query_parameter_string.split("&")
+    param_list = query_parameter_string.lstrip("?").split("&")
     param_list.sort(key=lambda x: x.split("=")[0])
     for param_string in param_list:
         param_key_and_val = param_string.split("=")

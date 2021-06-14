@@ -56,7 +56,7 @@ class CacheMiddleware:
         if cache_backend:
             if self.request.method in {"GET", "HEAD"}:
                 cache_key = self.key_func(self.request)
-                if isinstance(self.cache_backend, BaseAsyncCacheBackend):
+                if isinstance(cache_backend, BaseAsyncCacheBackend):
                     message = await cache_backend.get(cache_key)
                 else:
                     message = cache_backend.get(cache_key)

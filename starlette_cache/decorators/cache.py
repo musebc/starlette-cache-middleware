@@ -8,7 +8,7 @@ from starlette.responses import Response
 
 from starlette_cache.backends.base_async_cache_backend import BaseAsyncCacheBackend
 from starlette_cache.backends.base_cache_backend import BaseCacheBackend
-from starlette_cache.middleware import CacheMiddleware
+from starlette_cache.middleware.cache_middleware import CacheMiddleware
 
 
 def cache_api(

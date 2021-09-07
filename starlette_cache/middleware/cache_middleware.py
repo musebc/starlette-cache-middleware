@@ -52,7 +52,6 @@ class CacheMiddleware:
         """
         self.request = request
         self.request.state.update_cache = False
-        response = response
         if cache_backend:
             if self.request.method in {"GET", "HEAD"}:
                 cache_key = self.key_func(self.request)
@@ -101,6 +100,9 @@ class CacheMiddleware:
 
         cache_key = self.key_func(self.request)
 
-        await cache_backend.set(cache_key, message, self.ttl)
+        if isinstance(cache_backend, BaseAsyncCacheBackend):
+            await cache_backend.set(cache_key, message, self.ttl)
+        else:
+            cache_backend.set(cache_key, message, self.ttl)
 
         return message
